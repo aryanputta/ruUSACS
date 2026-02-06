@@ -42,6 +42,9 @@ from services.trading.spots import router as trading_spots_router
 from services.trading.schedules import router as trading_schedules_router
 from services.trading.requests import router as trading_requests_router
 
+# Navigation Module (Converted from TypeScript)
+from services.navigation.commute import router as commute_router
+
 app = FastAPI(
     title="RuParked API",
     description="Social, Communication, Safety & Sustainability features for student parking",
@@ -85,6 +88,7 @@ app.include_router(trading_spots_router)
 app.include_router(trading_schedules_router)
 app.include_router(trading_requests_router)
 app.include_router(graph_router)
+app.include_router(commute_router)
 
 
 @app.get("/")
