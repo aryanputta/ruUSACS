@@ -6,6 +6,10 @@ from services.social.friends import router as friends_router
 from services.social.requests import router as requests_router
 from services.social.groups import router as groups_router
 from services.social.permissions import router as permissions_router
+from services.social.availability import router as availability_router
+from services.social.overlap import router as overlap_router
+from services.social.parkingShare import router as parking_share_router
+from services.social.graph import router as graph_router
 
 # Chat Module
 from services.chat.messages import router as messages_router
@@ -21,6 +25,7 @@ from services.student.finals import router as finals_router
 from services.safety.share import router as share_router
 from services.safety.sessions import router as sessions_router
 from services.safety.emergency import router as emergency_router
+from services.safety.pairing import router as pairing_router
 
 # Sustainability Module
 from services.sustainability.carpool import router as carpool_router
@@ -31,6 +36,11 @@ from services.sustainability.badges import router as badges_router
 # Preferences Module
 from services.preferences.social import router as social_prefs_router
 from services.preferences.notifications import router as notifications_router
+
+# Trading Module (NEW)
+from services.trading.spots import router as trading_spots_router
+from services.trading.schedules import router as trading_schedules_router
+from services.trading.requests import router as trading_requests_router
 
 app = FastAPI(
     title="RuParked API",
@@ -52,6 +62,9 @@ app.include_router(friends_router)
 app.include_router(requests_router)
 app.include_router(groups_router)
 app.include_router(permissions_router)
+app.include_router(availability_router)
+app.include_router(overlap_router)
+app.include_router(parking_share_router)
 app.include_router(messages_router)
 app.include_router(presets_router)
 app.include_router(events_router)
@@ -61,12 +74,17 @@ app.include_router(finals_router)
 app.include_router(share_router)
 app.include_router(sessions_router)
 app.include_router(emergency_router)
+app.include_router(pairing_router)
 app.include_router(carpool_router)
 app.include_router(metrics_router)
 app.include_router(challenges_router)
 app.include_router(badges_router)
 app.include_router(social_prefs_router)
 app.include_router(notifications_router)
+app.include_router(trading_spots_router)
+app.include_router(trading_schedules_router)
+app.include_router(trading_requests_router)
+app.include_router(graph_router)
 
 
 @app.get("/")
