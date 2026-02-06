@@ -476,7 +476,11 @@ Examples:
 
     # Check dependencies for actions that need them
     if args.download:
-        check_dependencies()
+        # Only check FFmpeg for download
+        import shutil
+        if not shutil.which("ffmpeg"):
+            print("FFmpeg not found. Install it with: brew install ffmpeg")
+            sys.exit(1)
 
     # Execute requested action
     if args.download:
