@@ -36,6 +36,11 @@ from services.sustainability.badges import router as badges_router
 from services.preferences.social import router as social_prefs_router
 from services.preferences.notifications import router as notifications_router
 
+# Trading Module (NEW)
+from services.trading.spots import router as trading_spots_router
+from services.trading.schedules import router as trading_schedules_router
+from services.trading.requests import router as trading_requests_router
+
 app = FastAPI(
     title="RuParked API",
     description="Social, Communication, Safety & Sustainability features for student parking",
@@ -75,6 +80,9 @@ app.include_router(challenges_router)
 app.include_router(badges_router)
 app.include_router(social_prefs_router)
 app.include_router(notifications_router)
+app.include_router(trading_spots_router)
+app.include_router(trading_schedules_router)
+app.include_router(trading_requests_router)
 
 
 @app.get("/")
