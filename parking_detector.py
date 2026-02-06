@@ -10,6 +10,11 @@ MODEL_PATH = "yolo26n.pt"
 CALIBRATION_FRAMES = 150  # Frames to observe before defining spots
 MIN_SPOT_DETECTIONS = 3   # Minimum detections to consider a valid parking spot
 
+# Colors (BGR format for OpenCV)
+GREEN = (0, 255, 0)      # Available
+RED = (0, 0, 255)        # Occupied
+YELLOW = (0, 255, 255)   # Calibrating
+
 # COCO class IDs for vehicles
 VEHICLE_CLASSES = [2, 5, 7]  # car, bus, truck
 
@@ -21,42 +26,27 @@ model = YOLO(MODEL_PATH)
 def cluster_vehicle_positions(positions, eps=50, min_samples=3):
     """
     Use DBSCAN clustering to find parking spot locations from vehicle positions.
-
-    Args:
-        positions: List of (x, y, w, h) tuples for detected vehicles
-        eps: Maximum distance between points in a cluster (pixels)
-        min_samples: Minimum points to form a cluster
-
-    Returns:
-        List of parking zone polygons
     """
     if len(positions) < min_samples:
         return []
 
-    # Use center points for clustering
     centers = np.array([[p[0], p[1]] for p in positions])
-
-    # DBSCAN clustering
     clustering = DBSCAN(eps=eps, min_samples=min_samples).fit(centers)
     labels = clustering.labels_
 
-    # Get unique clusters (ignore noise labeled as -1)
     unique_labels = set(labels)
     unique_labels.discard(-1)
 
     parking_zones = []
     for label in unique_labels:
-        # Get all positions in this cluster
         cluster_mask = labels == label
         cluster_positions = [positions[i] for i in range(len(positions)) if cluster_mask[i]]
 
-        # Calculate average bounding box for this spot
         avg_x = np.mean([p[0] for p in cluster_positions])
         avg_y = np.mean([p[1] for p in cluster_positions])
         avg_w = np.mean([p[2] for p in cluster_positions])
         avg_h = np.mean([p[3] for p in cluster_positions])
 
-        # Create polygon from bounding box (with some padding)
         padding = 10
         x1, y1 = int(avg_x - avg_w/2 - padding), int(avg_y - avg_h/2 - padding)
         x2, y2 = int(avg_x + avg_w/2 + padding), int(avg_y + avg_h/2 + padding)
@@ -77,19 +67,90 @@ def is_point_in_polygon(point, polygon):
     return cv2.pointPolygonTest(poly_np, point, False) >= 0
 
 
+def draw_parking_zones(frame, zones, occupancy_list, calibrating=False):
+    """
+    Draw parking zones on frame with colors based on occupancy.
+    Green = Available, Red = Occupied, Yellow = Calibrating
+    """
+    overlay = frame.copy()
+
+    for idx, zone in enumerate(zones):
+        points = np.array(zone["points"], dtype=np.int32)
+
+        if calibrating:
+            color = YELLOW
+        else:
+            color = RED if occupancy_list[idx] else GREEN
+
+        # Draw filled polygon with transparency
+        cv2.fillPoly(overlay, [points], color)
+
+        # Draw border
+        cv2.polylines(frame, [points], isClosed=True, color=color, thickness=2)
+
+        # Draw spot number
+        center = zone.get("center", [
+            int(np.mean([p[0] for p in zone["points"]])),
+            int(np.mean([p[1] for p in zone["points"]]))
+        ])
+        label = f"#{idx+1}"
+        cv2.putText(frame, label, (center[0]-15, center[1]+5),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+
+    # Blend overlay with original frame (transparency)
+    alpha = 0.3
+    frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
+
+    return frame
+
+
+def draw_status_bar(frame, total, available, occupied, calibrating=False, calib_progress=0):
+    """Draw status bar at top of frame."""
+    h, w = frame.shape[:2]
+
+    # Dark background bar
+    cv2.rectangle(frame, (0, 0), (w, 60), (40, 40, 40), -1)
+
+    if calibrating:
+        text = f"CALIBRATING... {calib_progress}/{CALIBRATION_FRAMES} frames"
+        cv2.putText(frame, text, (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, YELLOW, 2)
+    else:
+        # Status text
+        cv2.putText(frame, f"TOTAL: {total}", (10, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+        cv2.putText(frame, f"AVAILABLE: {available}", (200, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, GREEN, 2)
+        cv2.putText(frame, f"OCCUPIED: {occupied}", (450, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, RED, 2)
+
+        # Occupancy bar
+        bar_width = 200
+        bar_x = w - bar_width - 20
+        occupancy_rate = occupied / total if total > 0 else 0
+        cv2.rectangle(frame, (bar_x, 15), (bar_x + bar_width, 45), (100, 100, 100), -1)
+        cv2.rectangle(frame, (bar_x, 15), (bar_x + int(bar_width * occupancy_rate), 45), RED, -1)
+        cv2.rectangle(frame, (bar_x, 15), (bar_x + bar_width, 45), (255, 255, 255), 2)
+
+    return frame
+
+
 print(f"\nStarting YOLO26 inference on: {YOUTUBE_URL}")
 print(f"Phase 1: Calibration - Learning parking spot positions ({CALIBRATION_FRAMES} frames)")
 print("=" * 60)
 
-results = model.predict(source=YOUTUBE_URL, stream=True, show=True, verbose=False)
+# Run prediction WITHOUT show=True - we'll handle display ourselves
+results = model.predict(source=YOUTUBE_URL, stream=True, show=False, verbose=False)
 
 frame_count = 0
-calibration_positions = []  # Store (center_x, center_y, width, height)
+calibration_positions = []
 parking_zones = []
 calibration_complete = False
 
 for result in results:
     frame_count += 1
+
+    # Get the frame with YOLO detections drawn
+    frame = result.plot()
 
     # Get detected vehicles
     boxes = result.boxes
@@ -104,7 +165,6 @@ for result in results:
             height = y2 - y1
 
             if not calibration_complete:
-                # Calibration phase: collect vehicle positions
                 calibration_positions.append((center_x, center_y, width, height))
 
     # After calibration frames, cluster positions to find parking spots
@@ -114,13 +174,12 @@ for result in results:
 
         parking_zones = cluster_vehicle_positions(
             calibration_positions,
-            eps=60,  # Vehicles within 60px are same spot
+            eps=60,
             min_samples=MIN_SPOT_DETECTIONS
         )
 
         print(f"Detected {len(parking_zones)} parking spots automatically!")
 
-        # Save zones to file
         with open("auto_parking_zones.json", "w") as f:
             json.dump(parking_zones, f, indent=2)
         print("Saved parking zones to auto_parking_zones.json")
@@ -130,8 +189,12 @@ for result in results:
         print("Phase 2: Detection - Monitoring parking availability")
         print("=" * 60 + "\n")
 
-    # Detection phase: check occupancy of auto-detected spots
-    if calibration_complete and len(parking_zones) > 0:
+    # Draw parking zones and status
+    if not calibration_complete:
+        # During calibration, show progress
+        frame = draw_status_bar(frame, 0, 0, 0, calibrating=True, calib_progress=frame_count)
+    else:
+        # Check occupancy
         zone_occupancy = [False] * len(parking_zones)
 
         for box in boxes:
@@ -149,14 +212,20 @@ for result in results:
         occupied = sum(zone_occupancy)
         available = len(parking_zones) - occupied
 
-        # Print status every 30 frames
+        # Draw parking zones with colors
+        frame = draw_parking_zones(frame, parking_zones, zone_occupancy)
+
+        # Draw status bar
+        frame = draw_status_bar(frame, len(parking_zones), available, occupied)
+
+        # Print JSON status every 30 frames
         if frame_count % 30 == 0:
             frame_data = {
                 "frame_number": frame_count,
                 "total_spots": len(parking_zones),
                 "available": available,
                 "occupied": occupied,
-                "occupancy_rate": round(occupied / len(parking_zones) * 100, 1),
+                "occupancy_rate": round(occupied / len(parking_zones) * 100, 1) if len(parking_zones) > 0 else 0,
                 "spots": [
                     {
                         "id": i,
@@ -169,5 +238,14 @@ for result in results:
             print(f"Frame {frame_count} | Available: {available}/{len(parking_zones)} | Occupied: {occupied}")
             print(f"  JSON: {json.dumps({k: v for k, v in frame_data.items() if k != 'spots'})}")
 
+    # Display the frame
+    cv2.imshow("RUParked - Parking Detection", frame)
+
+    # Press 'q' to quit
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        print("\nQuitting...")
+        break
+
+cv2.destroyAllWindows()
 print(f"\nFinished. Total frames: {frame_count}")
 print(f"Auto-detected {len(parking_zones)} parking spots")
