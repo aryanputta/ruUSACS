@@ -1,4 +1,5 @@
 import json
+import sys
 import cv2
 import numpy as np
 from ultralytics import YOLO
@@ -8,6 +9,7 @@ from sklearn.cluster import DBSCAN
 YOUTUBE_URL = "https://www.youtube.com/watch?v=U7HRKjlXK-Y"
 MODEL_PATH = "yolo26n.pt"
 CALIBRATION_FRAMES = 120
+ZONES_FILE = "manual_parking_zones.json"
 
 # Colors (BGR)
 GREEN = (0, 255, 0)
@@ -15,315 +17,356 @@ RED = (0, 0, 255)
 YELLOW = (0, 255, 255)
 WHITE = (255, 255, 255)
 BLUE = (255, 100, 0)
+CYAN = (255, 255, 0)
 
 # COCO class IDs
 VEHICLE_CLASSES = [2, 5, 7]  # car, bus, truck
 
-print(f"Loading model: {MODEL_PATH}")
-model = YOLO(MODEL_PATH)
 
+# ==================== MANUAL DRAWING MODE ====================
+
+class SpotDrawer:
+    """Interactive parking spot drawer using mouse clicks."""
+
+    def __init__(self, frame):
+        self.original_frame = frame.copy()
+        self.frame = frame.copy()
+        self.spots = []
+        self.current_polygon = []
+        self.drawing = False
+        self.done = False
+
+    def mouse_callback(self, event, x, y, flags, param):
+        if event == cv2.EVENT_LBUTTONDOWN:
+            # Left click: add point to current polygon
+            self.current_polygon.append([x, y])
+            self.redraw()
+
+        elif event == cv2.EVENT_RBUTTONDOWN:
+            # Right click: finish current polygon (need at least 3 points)
+            if len(self.current_polygon) >= 3:
+                # Calculate center
+                pts = np.array(self.current_polygon)
+                center = pts.mean(axis=0).astype(int).tolist()
+
+                self.spots.append({
+                    "id": len(self.spots),
+                    "points": self.current_polygon.copy(),
+                    "center": center
+                })
+                print(f"  Spot #{len(self.spots)} created with {len(self.current_polygon)} points")
+                self.current_polygon = []
+                self.redraw()
+            else:
+                print("  Need at least 3 points for a polygon. Keep clicking.")
+
+        elif event == cv2.EVENT_MBUTTONDOWN:
+            # Middle click: undo last point
+            if self.current_polygon:
+                self.current_polygon.pop()
+                self.redraw()
+
+    def redraw(self):
+        """Redraw frame with all spots and current polygon."""
+        self.frame = self.original_frame.copy()
+
+        # Draw completed spots
+        for i, spot in enumerate(self.spots):
+            pts = np.array(spot["points"], dtype=np.int32)
+            cv2.polylines(self.frame, [pts], True, GREEN, 2)
+            cv2.fillPoly(self.frame, [pts], (*GREEN[:3], 50))
+
+            # Label
+            cx, cy = spot["center"]
+            cv2.putText(self.frame, f"#{i+1}", (cx-10, cy+5),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, WHITE, 2)
+
+        # Draw current polygon in progress
+        if self.current_polygon:
+            pts = np.array(self.current_polygon, dtype=np.int32)
+
+            # Draw points
+            for pt in self.current_polygon:
+                cv2.circle(self.frame, tuple(pt), 5, CYAN, -1)
+
+            # Draw lines between points
+            if len(self.current_polygon) > 1:
+                cv2.polylines(self.frame, [pts], False, CYAN, 2)
+
+        # Draw instructions
+        self.draw_instructions()
+
+    def draw_instructions(self):
+        """Draw instruction overlay."""
+        h, w = self.frame.shape[:2]
+
+        # Semi-transparent background
+        overlay = self.frame.copy()
+        cv2.rectangle(overlay, (0, 0), (w, 80), (0, 0, 0), -1)
+        self.frame = cv2.addWeighted(overlay, 0.7, self.frame, 0.3, 0)
+
+        # Instructions
+        cv2.putText(self.frame, "MANUAL SPOT DRAWING MODE", (10, 25),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, YELLOW, 2)
+        cv2.putText(self.frame, "Left-click: Add point | Right-click: Finish polygon | "
+                   "Middle-click: Undo point", (10, 50),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.45, WHITE, 1)
+        cv2.putText(self.frame, f"Press 'S' to save & start | 'R' to reset | 'Q' to quit | "
+                   f"Spots: {len(self.spots)}", (10, 70),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.45, WHITE, 1)
+
+    def run(self):
+        """Run the interactive drawing interface."""
+        cv2.namedWindow("Draw Parking Spots")
+        cv2.setMouseCallback("Draw Parking Spots", self.mouse_callback)
+
+        self.redraw()
+
+        print("\n" + "="*60)
+        print("MANUAL SPOT DRAWING MODE")
+        print("="*60)
+        print("Instructions:")
+        print("  - Left-click to add points for a polygon")
+        print("  - Right-click to finish the current polygon")
+        print("  - Middle-click to undo the last point")
+        print("  - Press 'S' to save spots and start detection")
+        print("  - Press 'R' to reset all spots")
+        print("  - Press 'Q' to quit without saving")
+        print("="*60 + "\n")
+
+        while True:
+            cv2.imshow("Draw Parking Spots", self.frame)
+            key = cv2.waitKey(1) & 0xFF
+
+            if key == ord('s') or key == ord('S'):
+                if len(self.spots) > 0:
+                    print(f"\nSaving {len(self.spots)} spots...")
+                    self.done = True
+                    break
+                else:
+                    print("No spots drawn yet. Draw at least one spot.")
+
+            elif key == ord('r') or key == ord('R'):
+                print("Resetting all spots...")
+                self.spots = []
+                self.current_polygon = []
+                self.redraw()
+
+            elif key == ord('q') or key == ord('Q'):
+                print("Quitting without saving...")
+                self.spots = []
+                break
+
+            elif key == 27:  # ESC
+                print("Cancelled.")
+                self.spots = []
+                break
+
+        cv2.destroyWindow("Draw Parking Spots")
+        return self.spots
+
+
+def run_manual_drawing(source):
+    """Extract a frame and run manual spot drawing."""
+    print(f"Loading video from: {source}")
+    print("Extracting frame for drawing...")
+
+    # Use YOLO to get a frame (handles YouTube URLs)
+    model = YOLO(MODEL_PATH)
+    results = model.predict(source=source, stream=True, show=False, verbose=False)
+
+    # Get frame ~3 seconds in (skip first 90 frames at 30fps)
+    frame = None
+    for i, result in enumerate(results):
+        if i == 90:  # ~3 seconds
+            frame = result.orig_img.copy()
+            break
+        if i > 100:
+            break
+
+    if frame is None:
+        # Fallback: use first available frame
+        results = model.predict(source=source, stream=True, show=False, verbose=False)
+        for result in results:
+            frame = result.orig_img.copy()
+            break
+
+    if frame is None:
+        print("Error: Could not extract frame from video")
+        sys.exit(1)
+
+    print(f"Frame extracted: {frame.shape[1]}x{frame.shape[0]}")
+
+    # Run drawer
+    drawer = SpotDrawer(frame)
+    spots = drawer.run()
+
+    if spots:
+        # Save to file
+        with open(ZONES_FILE, 'w') as f:
+            json.dump(spots, f, indent=2)
+        print(f"Saved {len(spots)} spots to {ZONES_FILE}")
+
+    return spots
+
+
+# ==================== AUTO DETECTION FUNCTIONS ====================
 
 def detect_parking_lines(frame):
-    """
-    Detect white/yellow parking line markings using edge detection.
-    Returns line segments that likely represent parking boundaries.
-    """
-    # Convert to grayscale
+    """Detect white/yellow parking line markings."""
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-    # Enhance contrast
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     enhanced = clahe.apply(gray)
-
-    # Threshold to find white lines (parking markings are usually white/yellow)
     _, white_mask = cv2.threshold(enhanced, 200, 255, cv2.THRESH_BINARY)
 
-    # Also detect using HSV for yellow lines
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     yellow_lower = np.array([15, 80, 80])
     yellow_upper = np.array([35, 255, 255])
     yellow_mask = cv2.inRange(hsv, yellow_lower, yellow_upper)
 
-    # Combine masks
     line_mask = cv2.bitwise_or(white_mask, yellow_mask)
-
-    # Morphological operations to clean up
     kernel = np.ones((3, 3), np.uint8)
     line_mask = cv2.morphologyEx(line_mask, cv2.MORPH_CLOSE, kernel)
     line_mask = cv2.morphologyEx(line_mask, cv2.MORPH_OPEN, kernel)
 
-    # Edge detection
     edges = cv2.Canny(line_mask, 50, 150)
-
-    # Detect lines using Hough Transform
-    lines = cv2.HoughLinesP(
-        edges,
-        rho=1,
-        theta=np.pi/180,
-        threshold=30,
-        minLineLength=20,
-        maxLineGap=15
-    )
+    lines = cv2.HoughLinesP(edges, 1, np.pi/180, 30, minLineLength=20, maxLineGap=15)
 
     if lines is None:
-        return [], line_mask
+        return []
 
-    detected_lines = []
-    for line in lines:
-        x1, y1, x2, y2 = line[0]
-        length = np.sqrt((x2-x1)**2 + (y2-y1)**2)
-        angle = np.abs(np.arctan2(y2-y1, x2-x1) * 180 / np.pi)
-
-        # Filter: keep lines that are somewhat vertical or horizontal
-        # (parking lines are usually perpendicular or parallel to driving lanes)
-        if length > 15:
-            detected_lines.append({
-                'start': (x1, y1),
-                'end': (x2, y2),
-                'length': length,
-                'angle': angle,
-                'midpoint': ((x1+x2)//2, (y1+y2)//2)
-            })
-
-    return detected_lines, line_mask
+    return [{'start': (l[0][0], l[0][1]), 'end': (l[0][2], l[0][3]),
+             'midpoint': ((l[0][0]+l[0][2])//2, (l[0][1]+l[0][3])//2)}
+            for l in lines]
 
 
-def create_spot_from_vehicle(vehicle_bbox, padding_ratio=0.15):
-    """
-    Create a parking spot sized to fit the detected vehicle.
-    Uses the car's bounding box as context for spot size.
-    Adds padding around the vehicle to create the spot boundary.
-    """
-    x1, y1, x2, y2 = vehicle_bbox
-    width = x2 - x1
-    height = y2 - y1
+def create_spot_from_vehicle(bbox, padding=0.15):
+    """Create spot from vehicle bounding box."""
+    x1, y1, x2, y2 = bbox
+    w, h = x2 - x1, y2 - y1
+    pw, ph = w * padding, h * padding
 
-    # Add padding (spots are slightly larger than cars)
-    pad_w = width * padding_ratio
-    pad_h = height * padding_ratio
-
-    spot_x1 = int(x1 - pad_w)
-    spot_y1 = int(y1 - pad_h)
-    spot_x2 = int(x2 + pad_w)
-    spot_y2 = int(y2 + pad_h)
-
-    center_x = (spot_x1 + spot_x2) // 2
-    center_y = (spot_y1 + spot_y2) // 2
+    sx1, sy1 = int(x1 - pw), int(y1 - ph)
+    sx2, sy2 = int(x2 + pw), int(y2 + ph)
 
     return {
-        "points": [[spot_x1, spot_y1], [spot_x2, spot_y1], [spot_x2, spot_y2], [spot_x1, spot_y2]],
-        "center": [center_x, center_y],
-        "width": spot_x2 - spot_x1,
-        "height": spot_y2 - spot_y1,
-        "vehicle_width": width,
-        "vehicle_height": height
+        "points": [[sx1, sy1], [sx2, sy1], [sx2, sy2], [sx1, sy2]],
+        "center": [(sx1 + sx2) // 2, (sy1 + sy2) // 2],
+        "width": sx2 - sx1, "height": sy2 - sy1
     }
 
 
-def find_empty_spots_from_lines(lines, occupied_spots, frame_shape):
-    """
-    Use detected parking lines to find potential empty spots.
-    Looks for gaps between lines that match typical spot dimensions.
-    """
-    if len(lines) < 2 or len(occupied_spots) == 0:
+def find_empty_spots(occupied_spots, frame_shape):
+    """Find empty spots by analyzing gaps."""
+    if len(occupied_spots) < 2:
         return []
 
     h, w = frame_shape[:2]
-    empty_spots = []
+    empty = []
 
-    # Get average spot dimensions from occupied spots (perspective-aware)
-    # Group spots by Y position (row) to handle perspective
-    spots_by_row = {}
+    # Group by row
+    rows = {}
     for spot in occupied_spots:
-        row_y = spot["center"][1] // 50 * 50  # Group by 50px bands
-        if row_y not in spots_by_row:
-            spots_by_row[row_y] = []
-        spots_by_row[row_y].append(spot)
+        row_y = spot["center"][1] // 50 * 50
+        rows.setdefault(row_y, []).append(spot)
 
-    # For each row, find gaps that could be empty spots
-    for row_y, row_spots in spots_by_row.items():
-        if len(row_spots) == 0:
+    for row_y, row_spots in rows.items():
+        row_spots = sorted(row_spots, key=lambda s: s["center"][0])
+        if len(row_spots) < 2:
             continue
 
-        # Sort spots by X position
-        row_spots = sorted(row_spots, key=lambda s: s["center"][0])
+        avg_w = np.mean([s["width"] for s in row_spots])
+        avg_h = np.mean([s["height"] for s in row_spots])
 
-        # Get average dimensions for this row (handles perspective)
-        avg_width = np.mean([s["width"] for s in row_spots])
-        avg_height = np.mean([s["height"] for s in row_spots])
+        spacings = [row_spots[i+1]["center"][0] - row_spots[i]["center"][0]
+                   for i in range(len(row_spots)-1)]
+        avg_spacing = np.median(spacings) if spacings else avg_w * 1.1
 
-        # Calculate typical spacing
-        if len(row_spots) > 1:
-            spacings = []
-            for i in range(len(row_spots) - 1):
-                gap = row_spots[i+1]["center"][0] - row_spots[i]["center"][0]
-                spacings.append(gap)
-            avg_spacing = np.median(spacings)
-        else:
-            avg_spacing = avg_width * 1.1
-
-        # Look for gaps between adjacent spots
+        # Find gaps
         for i in range(len(row_spots) - 1):
-            spot1 = row_spots[i]
-            spot2 = row_spots[i + 1]
-
-            gap = spot2["center"][0] - spot1["center"][0]
-
-            # If gap is larger than 1.5x normal spacing, there might be empty spots
+            gap = row_spots[i+1]["center"][0] - row_spots[i]["center"][0]
             if gap > avg_spacing * 1.5:
                 num_empty = int(round(gap / avg_spacing)) - 1
-
                 for j in range(1, num_empty + 1):
-                    # Interpolate position
                     ratio = j / (num_empty + 1)
-                    empty_x = int(spot1["center"][0] + gap * ratio)
-                    empty_y = int(spot1["center"][1] + (spot2["center"][1] - spot1["center"][1]) * ratio)
+                    ex = int(row_spots[i]["center"][0] + gap * ratio)
+                    ey = int(row_spots[i]["center"][1])
 
-                    # Interpolate size (for perspective)
-                    empty_w = int(spot1["width"] + (spot2["width"] - spot1["width"]) * ratio)
-                    empty_h = int(spot1["height"] + (spot2["height"] - spot1["height"]) * ratio)
-
-                    x1 = empty_x - empty_w // 2
-                    y1 = empty_y - empty_h // 2
-                    x2 = empty_x + empty_w // 2
-                    y2 = empty_y + empty_h // 2
-
-                    empty_spots.append({
-                        "points": [[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
-                        "center": [empty_x, empty_y],
-                        "width": empty_w,
-                        "height": empty_h,
+                    empty.append({
+                        "points": [[ex-int(avg_w)//2, ey-int(avg_h)//2],
+                                  [ex+int(avg_w)//2, ey-int(avg_h)//2],
+                                  [ex+int(avg_w)//2, ey+int(avg_h)//2],
+                                  [ex-int(avg_w)//2, ey+int(avg_h)//2]],
+                        "center": [ex, ey], "width": int(avg_w), "height": int(avg_h),
                         "inferred": True
                     })
 
-        # Extend row on left side
-        first_spot = row_spots[0]
-        if first_spot["center"][0] > avg_spacing * 1.5:
-            # Room for spots on the left
-            num_left = min(3, int(first_spot["center"][0] / avg_spacing))
-            for j in range(1, num_left + 1):
-                empty_x = int(first_spot["center"][0] - avg_spacing * j)
-                if empty_x < avg_width // 2:
-                    break
-                empty_y = first_spot["center"][1]
-
-                x1 = empty_x - int(avg_width) // 2
-                y1 = empty_y - int(avg_height) // 2
-                x2 = empty_x + int(avg_width) // 2
-                y2 = empty_y + int(avg_height) // 2
-
-                if x1 > 0:
-                    empty_spots.append({
-                        "points": [[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
-                        "center": [empty_x, empty_y],
-                        "width": int(avg_width),
-                        "height": int(avg_height),
-                        "inferred": True
-                    })
-
-        # Extend row on right side
-        last_spot = row_spots[-1]
-        if last_spot["center"][0] < w - avg_spacing * 1.5:
-            num_right = min(3, int((w - last_spot["center"][0]) / avg_spacing))
-            for j in range(1, num_right + 1):
-                empty_x = int(last_spot["center"][0] + avg_spacing * j)
-                if empty_x > w - avg_width // 2:
-                    break
-                empty_y = last_spot["center"][1]
-
-                x1 = empty_x - int(avg_width) // 2
-                y1 = empty_y - int(avg_height) // 2
-                x2 = empty_x + int(avg_width) // 2
-                y2 = empty_y + int(avg_height) // 2
-
-                if x2 < w:
-                    empty_spots.append({
-                        "points": [[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
-                        "center": [empty_x, empty_y],
-                        "width": int(avg_width),
-                        "height": int(avg_height),
-                        "inferred": True
-                    })
-
-    return empty_spots
+    return empty
 
 
-def merge_spots(spots, min_distance=40):
-    """Remove overlapping spots, keeping the better defined ones."""
+def merge_spots(spots, min_dist=40):
+    """Merge overlapping spots."""
     if len(spots) <= 1:
         return spots
 
-    # Sort by whether they're inferred (real spots first)
     spots = sorted(spots, key=lambda s: s.get("inferred", False))
-
     merged = []
+
     for spot in spots:
         c1 = spot["center"]
-        is_duplicate = False
-
+        dup = False
         for existing in merged:
             c2 = existing["center"]
-            dist = np.sqrt((c1[0] - c2[0])**2 + (c1[1] - c2[1])**2)
-            if dist < min_distance:
-                is_duplicate = True
+            if np.sqrt((c1[0]-c2[0])**2 + (c1[1]-c2[1])**2) < min_dist:
+                dup = True
                 break
-
-        if not is_duplicate:
+        if not dup:
             merged.append(spot)
 
-    # Assign IDs
-    for i, spot in enumerate(merged):
-        spot["id"] = i
+    for i, s in enumerate(merged):
+        s["id"] = i
 
     return merged
 
 
-def check_occupancy(spots, vehicle_boxes):
-    """Check which spots are occupied using IoU overlap."""
-    occupancy = [False] * len(spots)
+def check_occupancy(spots, vehicles):
+    """Check spot occupancy using IoU."""
+    occ = [False] * len(spots)
 
-    for vbox in vehicle_boxes:
-        vx1, vy1, vx2, vy2 = vbox
-        v_area = (vx2 - vx1) * (vy2 - vy1)
+    for vx1, vy1, vx2, vy2 in vehicles:
+        v_area = (vx2-vx1) * (vy2-vy1)
 
         for idx, spot in enumerate(spots):
-            if occupancy[idx]:
+            if occ[idx]:
                 continue
 
             sp = spot["points"]
             sx1, sy1 = sp[0]
             sx2, sy2 = sp[2]
-            s_area = (sx2 - sx1) * (sy2 - sy1)
+            s_area = (sx2-sx1) * (sy2-sy1)
 
-            # Calculate intersection
-            ix1 = max(vx1, sx1)
-            iy1 = max(vy1, sy1)
-            ix2 = min(vx2, sx2)
-            iy2 = min(vy2, sy2)
+            ix1, iy1 = max(vx1, sx1), max(vy1, sy1)
+            ix2, iy2 = min(vx2, sx2), min(vy2, sy2)
 
             if ix1 < ix2 and iy1 < iy2:
-                intersection = (ix2 - ix1) * (iy2 - iy1)
-                # Occupied if >25% overlap with spot or vehicle
-                if intersection > 0.25 * s_area or intersection > 0.25 * v_area:
-                    occupancy[idx] = True
+                inter = (ix2-ix1) * (iy2-iy1)
+                if inter > 0.25 * s_area or inter > 0.25 * v_area:
+                    occ[idx] = True
 
-    return occupancy
+    return occ
 
 
 def draw_spots(frame, spots, occupancy):
-    """Draw parking spots with colors."""
+    """Draw parking spots."""
     overlay = frame.copy()
 
     for idx, spot in enumerate(spots):
         pts = np.array(spot["points"], dtype=np.int32)
         color = RED if occupancy[idx] else GREEN
 
-        # Fill
         cv2.fillPoly(overlay, [pts], color)
-        # Border
         cv2.polylines(frame, [pts], True, color, 2)
 
-        # Label
         cx, cy = spot["center"]
         label = f"#{idx+1}"
         (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)
@@ -333,14 +376,7 @@ def draw_spots(frame, spots, occupancy):
     return cv2.addWeighted(overlay, 0.35, frame, 0.65, 0)
 
 
-def draw_lines_debug(frame, lines):
-    """Draw detected parking lines for debugging."""
-    for line in lines:
-        cv2.line(frame, line['start'], line['end'], BLUE, 1)
-    return frame
-
-
-def draw_status(frame, total, available, occupied, calibrating=False, progress=0):
+def draw_status(frame, total, available, occupied, calibrating=False, progress=0, mode="AUTO"):
     """Draw status bar."""
     h, w = frame.shape[:2]
     cv2.rectangle(frame, (0, 0), (w, 60), (30, 30, 30), -1)
@@ -352,7 +388,8 @@ def draw_status(frame, total, available, occupied, calibrating=False, progress=0
         cv2.rectangle(frame, (20, 50), (w-20, 58), (60,60,60), -1)
         cv2.rectangle(frame, (20, 50), (20+int((w-40)*pct), 58), YELLOW, -1)
     else:
-        cv2.putText(frame, "RUParked", (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, WHITE, 2)
+        mode_color = CYAN if mode == "MANUAL" else WHITE
+        cv2.putText(frame, f"RUParked [{mode}]", (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, mode_color, 2)
         cv2.putText(frame, f"TOTAL: {total}", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, WHITE, 1)
         cv2.putText(frame, f"AVAILABLE: {available}", (130, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, GREEN, 2)
         cv2.putText(frame, f"OCCUPIED: {occupied}", (300, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, RED, 2)
@@ -364,89 +401,119 @@ def draw_status(frame, total, available, occupied, calibrating=False, progress=0
     return frame
 
 
-# === MAIN ===
-print(f"\nStarting on: {YOUTUBE_URL}")
-print(f"Phase 1: Mapping parking lot ({CALIBRATION_FRAMES} frames)")
-print("="*60)
+# ==================== MAIN ====================
 
-results = model.predict(source=YOUTUBE_URL, stream=True, show=False, verbose=False)
+def main():
+    import argparse
 
-frame_count = 0
-collected_spots = []  # Spots created from vehicle bounding boxes
-all_lines = []
-parking_spots = []
-calibration_done = False
-frame_shape = None
+    parser = argparse.ArgumentParser(description="RUParked - Parking Detection System")
+    parser.add_argument("--manual", "-m", action="store_true",
+                       help="Enable manual spot drawing mode")
+    parser.add_argument("--source", "-s", default=YOUTUBE_URL,
+                       help=f"Video source (default: {YOUTUBE_URL})")
+    parser.add_argument("--load", "-l", type=str,
+                       help="Load spots from JSON file instead of detecting")
+    args = parser.parse_args()
 
-for result in results:
-    frame_count += 1
-    frame = result.plot()
+    source = args.source
+    parking_spots = []
+    mode = "AUTO"
 
-    if frame_shape is None:
-        frame_shape = frame.shape
+    print(f"Loading model: {MODEL_PATH}")
+    model = YOLO(MODEL_PATH)
 
-    # Get current vehicles
-    current_vehicles = []
-    boxes = result.boxes
-    for box in boxes:
-        if int(box.cls[0]) in VEHICLE_CLASSES:
-            x1, y1, x2, y2 = box.xyxy[0].tolist()
-            current_vehicles.append((x1, y1, x2, y2))
+    # Manual drawing mode
+    if args.manual:
+        mode = "MANUAL"
+        parking_spots = run_manual_drawing(source)
+        if not parking_spots:
+            print("No spots drawn. Exiting.")
+            return
 
-            # During calibration, create spot from each vehicle's bounding box
-            if not calibration_done:
-                spot = create_spot_from_vehicle((x1, y1, x2, y2))
-                collected_spots.append(spot)
+    # Load from file
+    elif args.load:
+        mode = "MANUAL"
+        print(f"Loading spots from {args.load}")
+        with open(args.load, 'r') as f:
+            parking_spots = json.load(f)
+        print(f"Loaded {len(parking_spots)} spots")
 
-    # Detect parking lines during calibration
-    if not calibration_done and frame_count % 10 == 0:
-        lines, _ = detect_parking_lines(frame)
-        all_lines.extend(lines)
+    # Run detection
+    print(f"\nStarting detection on: {source}")
+    if mode == "MANUAL":
+        print(f"Using {len(parking_spots)} manually defined spots")
+    else:
+        print(f"Auto-detecting spots ({CALIBRATION_FRAMES} calibration frames)")
+    print("="*60)
 
-    # After calibration
-    if frame_count == CALIBRATION_FRAMES and not calibration_done:
-        print(f"\nCollected {len(collected_spots)} vehicle-based spots")
-        print(f"Detected {len(all_lines)} line segments")
+    results = model.predict(source=source, stream=True, show=False, verbose=False)
 
-        # Merge collected spots (same car detected multiple times)
-        occupied_spots = merge_spots(collected_spots, min_distance=50)
-        print(f"Merged to {len(occupied_spots)} unique occupied spots")
+    frame_count = 0
+    collected_spots = []
+    all_lines = []
+    calibration_done = mode == "MANUAL"  # Skip calibration if manual
+    frame_shape = None
 
-        # Find empty spots based on gaps and lines
-        empty_spots = find_empty_spots_from_lines(all_lines, occupied_spots, frame_shape)
-        print(f"Inferred {len(empty_spots)} potential empty spots")
+    for result in results:
+        frame_count += 1
+        frame = result.plot()
 
-        # Combine all spots
-        all_spots = occupied_spots + empty_spots
-        parking_spots = merge_spots(all_spots, min_distance=45)
+        if frame_shape is None:
+            frame_shape = frame.shape
 
-        print(f"Total mapped: {len(parking_spots)} parking spots")
+        # Get vehicles
+        current_vehicles = []
+        for box in result.boxes:
+            if int(box.cls[0]) in VEHICLE_CLASSES:
+                x1, y1, x2, y2 = box.xyxy[0].tolist()
+                current_vehicles.append((x1, y1, x2, y2))
 
-        with open("auto_parking_zones.json", "w") as f:
-            json.dump(parking_spots, f, indent=2)
+                if not calibration_done:
+                    collected_spots.append(create_spot_from_vehicle((x1, y1, x2, y2)))
 
-        calibration_done = True
-        print("\n" + "="*60)
-        print("Phase 2: Live monitoring")
-        print("="*60 + "\n")
+        # Line detection during calibration
+        if not calibration_done and frame_count % 10 == 0:
+            all_lines.extend(detect_parking_lines(frame))
 
-    # Draw
-    if not calibration_done:
-        frame = draw_status(frame, 0, 0, 0, calibrating=True, progress=frame_count)
-    elif len(parking_spots) > 0:
-        occupancy = check_occupancy(parking_spots, current_vehicles)
-        occupied = sum(occupancy)
-        available = len(parking_spots) - occupied
+        # End calibration
+        if frame_count == CALIBRATION_FRAMES and not calibration_done:
+            print(f"\nCalibration: {len(collected_spots)} detections, {len(all_lines)} lines")
 
-        frame = draw_spots(frame, parking_spots, occupancy)
-        frame = draw_status(frame, len(parking_spots), available, occupied)
+            occupied = merge_spots(collected_spots, 50)
+            empty = find_empty_spots(occupied, frame_shape)
+            parking_spots = merge_spots(occupied + empty, 45)
 
-        if frame_count % 30 == 0:
-            print(f"Frame {frame_count} | Available: {available}/{len(parking_spots)} | Occupied: {occupied}")
+            print(f"Mapped {len(parking_spots)} spots")
 
-    cv2.imshow("RUParked", frame)
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+            with open("auto_parking_zones.json", "w") as f:
+                json.dump(parking_spots, f, indent=2)
 
-cv2.destroyAllWindows()
-print(f"\nDone. Mapped {len(parking_spots)} spots.")
+            calibration_done = True
+            print("\n" + "="*60)
+            print("Live monitoring started")
+            print("="*60 + "\n")
+
+        # Draw
+        if not calibration_done:
+            frame = draw_status(frame, 0, 0, 0, calibrating=True, progress=frame_count)
+        elif parking_spots:
+            occ = check_occupancy(parking_spots, current_vehicles)
+            occupied = sum(occ)
+            available = len(parking_spots) - occupied
+
+            frame = draw_spots(frame, parking_spots, occ)
+            frame = draw_status(frame, len(parking_spots), available, occupied, mode=mode)
+
+            if frame_count % 30 == 0:
+                print(f"Frame {frame_count} | Available: {available}/{len(parking_spots)} | Occupied: {occupied}")
+
+        cv2.imshow("RUParked", frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cv2.destroyAllWindows()
+    print(f"\nDone. Total spots: {len(parking_spots)}")
+
+
+if __name__ == "__main__":
+    main()
