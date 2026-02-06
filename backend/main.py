@@ -9,6 +9,7 @@ from services.social.permissions import router as permissions_router
 from services.social.availability import router as availability_router
 from services.social.overlap import router as overlap_router
 from services.social.parkingShare import router as parking_share_router
+from services.social.graph import router as graph_router
 
 # Chat Module
 from services.chat.messages import router as messages_router
@@ -83,6 +84,7 @@ app.include_router(notifications_router)
 app.include_router(trading_spots_router)
 app.include_router(trading_schedules_router)
 app.include_router(trading_requests_router)
+app.include_router(graph_router)
 
 
 @app.get("/")
