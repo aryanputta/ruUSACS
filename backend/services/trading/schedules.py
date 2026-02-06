@@ -159,3 +159,161 @@ async def toggle_schedule_privacy(user_id: str, is_public: bool):
     
     schedules_db[user_id]["is_public"] = is_public
     return {"message": f"Schedule visibility set to {'public' if is_public else 'private'}"}
+
+
+# ============================================================
+# FRIEND SCHEDULE COMPARISON FEATURES
+# ============================================================
+
+@router.get("/{user_id}/compare/{friend_id}")
+async def compare_with_friend(user_id: str, friend_id: str):
+    """Compare your schedule with a specific friend's schedule"""
+    if user_id not in schedules_db:
+        raise HTTPException(status_code=404, detail="Your schedule not found")
+    if friend_id not in schedules_db:
+        raise HTTPException(status_code=404, detail="Friend's schedule not found")
+    
+    my_schedule = schedules_db[user_id]
+    friend_schedule = schedules_db[friend_id]
+    
+    my_classes = my_schedule["classes"]
+    friend_classes = friend_schedule["classes"]
+    
+    # Find overlapping times and gaps
+    overlapping_times = []
+    same_building_times = []
+    free_time_overlap = []
+    
+    for my_class in my_classes:
+        for friend_class in friend_classes:
+            if my_class["day"] == friend_class["day"]:
+                # Same time slot
+                if my_class["start_time"] == friend_class["start_time"]:
+                    overlapping_times.append({
+                        "day": my_class["day"],
+                        "time": my_class["start_time"],
+                        "your_class": my_class["class_name"],
+                        "your_building": my_class["building"],
+                        "friend_class": friend_class["class_name"],
+                        "friend_building": friend_class["building"]
+                    })
+                
+                # Same building
+                if my_class["building"] == friend_class["building"]:
+                    same_building_times.append({
+                        "day": my_class["day"],
+                        "building": my_class["building"],
+                        "your_time": f"{my_class['start_time']} - {my_class['end_time']}",
+                        "friend_time": f"{friend_class['start_time']} - {friend_class['end_time']}"
+                    })
+    
+    # Calculate compatibility score
+    score = len(overlapping_times) * 20 + len(same_building_times) * 10
+    
+    return {
+        "comparison": {
+            "your_user_id": user_id,
+            "friend_user_id": friend_id,
+            "compatibility_score": score,
+            "overlapping_class_times": overlapping_times,
+            "same_building_times": same_building_times,
+            "your_preferred_lots": my_schedule.get("preferred_lots", []),
+            "friend_preferred_lots": friend_schedule.get("preferred_lots", [])
+        },
+        "recommendation": "Great parking buddy!" if score >= 30 else "Some overlap - could coordinate" if score > 0 else "Different schedules"
+    }
+
+
+@router.post("/{user_id}/share-with-friend/{friend_id}")
+async def share_schedule_with_friend(user_id: str, friend_id: str):
+    """Share your schedule specifically with a friend"""
+    if user_id not in schedules_db:
+        raise HTTPException(status_code=404, detail="Your schedule not found")
+    
+    # Add friend to shared list
+    if "shared_with" not in schedules_db[user_id]:
+        schedules_db[user_id]["shared_with"] = []
+    
+    if friend_id not in schedules_db[user_id]["shared_with"]:
+        schedules_db[user_id]["shared_with"].append(friend_id)
+    
+    return {"message": f"Schedule shared with {friend_id}"}
+
+
+@router.get("/{user_id}/friends-schedules")
+async def get_friends_schedules(user_id: str, friend_ids: str):
+    """Get schedules of multiple friends (comma-separated IDs)"""
+    friend_list = [f.strip() for f in friend_ids.split(",")]
+    
+    friends_data = []
+    for friend_id in friend_list:
+        if friend_id in schedules_db:
+            schedule = schedules_db[friend_id]
+            # Only show if public or shared with user
+            if schedule.get("is_public", True) or user_id in schedule.get("shared_with", []):
+                friends_data.append({
+                    "friend_id": friend_id,
+                    "classes": schedule["classes"],
+                    "preferred_lots": schedule.get("preferred_lots", [])
+                })
+    
+    return {"friends_schedules": friends_data, "count": len(friends_data)}
+
+
+@router.post("/{user_id}/preferred-lots")
+async def set_preferred_lots(user_id: str, lots: List[str]):
+    """Set your preferred parking lots"""
+    if user_id not in schedules_db:
+        schedules_db[user_id] = {
+            "user_id": user_id,
+            "semester": "Spring 2026",
+            "classes": [],
+            "preferred_lots": [],
+            "is_public": True,
+            "updated_at": datetime.now().isoformat()
+        }
+    
+    schedules_db[user_id]["preferred_lots"] = lots
+    return {"message": "Preferred lots updated", "lots": lots}
+
+
+@router.get("/{user_id}/parking-buddies")
+async def find_parking_buddies(user_id: str):
+    """Find friends with similar schedules who could be parking buddies"""
+    if user_id not in schedules_db:
+        raise HTTPException(status_code=404, detail="Your schedule not found")
+    
+    my_schedule = schedules_db[user_id]
+    my_lots = set(my_schedule.get("preferred_lots", []))
+    
+    buddies = []
+    for other_id, other_schedule in schedules_db.items():
+        if other_id == user_id:
+            continue
+        if not other_schedule.get("is_public", True):
+            continue
+        
+        other_lots = set(other_schedule.get("preferred_lots", []))
+        shared_lots = my_lots & other_lots
+        
+        # Count schedule overlaps
+        overlap_count = 0
+        for my_class in my_schedule["classes"]:
+            for other_class in other_schedule["classes"]:
+                if my_class["day"] == other_class["day"]:
+                    if my_class["start_time"] == other_class["start_time"]:
+                        overlap_count += 1
+        
+        if shared_lots or overlap_count > 0:
+            buddies.append({
+                "user_id": other_id,
+                "shared_parking_lots": list(shared_lots),
+                "schedule_overlaps": overlap_count,
+                "buddy_score": len(shared_lots) * 15 + overlap_count * 10
+            })
+    
+    # Sort by buddy score
+    buddies.sort(key=lambda x: x["buddy_score"], reverse=True)
+    
+    return {"parking_buddies": buddies[:10], "total_matches": len(buddies)}
+
