@@ -6,3 +6,4 @@ opencv-python>=4.8.0
 yt-dlp>=2024.0.0
 numpy>=1.23.0
 torch>=2.0.0
+scikit-learn>=1.0.0

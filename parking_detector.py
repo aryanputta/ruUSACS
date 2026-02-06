@@ -1,230 +1,173 @@
-#!/usr/bin/env python3
-"""
-RUParked - Parking Lot Detection System
-Uses Ultralytics YOLO26 with ParkingManagement for real-time parking spot detection.
-Streams YouTube videos directly - no download required.
-
-Usage:
-    python parking_detector.py --source <youtube_url>   # Run detection with live display
-    python parking_detector.py --source <youtube_url> --output data.json  # Save JSON
-"""
-
-import argparse
 import json
-import os
-import sys
-import time
-
 import cv2
 import numpy as np
 from ultralytics import YOLO
-
+from sklearn.cluster import DBSCAN
 
 # Configuration
-DEFAULT_ZONES_FILE = "bounding_boxes.json"
-DEFAULT_MODEL = "yolo26n.pt"
+YOUTUBE_URL = "https://www.youtube.com/watch?v=U7HRKjlXK-Y"
+MODEL_PATH = "yolo26n.pt"
+CALIBRATION_FRAMES = 150  # Frames to observe before defining spots
+MIN_SPOT_DETECTIONS = 3   # Minimum detections to consider a valid parking spot
+
+# COCO class IDs for vehicles
+VEHICLE_CLASSES = [2, 5, 7]  # car, bus, truck
+
+# Load YOLO26 model
+print(f"Loading model: {MODEL_PATH}")
+model = YOLO(MODEL_PATH)
 
 
-def load_parking_zones(zones_file: str) -> list:
-    """Load parking zone polygons from JSON file."""
-    if not os.path.exists(zones_file):
-        print(f"Error: Parking zones file not found: {zones_file}")
-        print("Create bounding_boxes.json with parking zone coordinates first.")
-        sys.exit(1)
-
-    with open(zones_file, 'r') as f:
-        zones_data = json.load(f)
-
-    # Format: [{"points": [[x1,y1], [x2,y2], ...]}, ...]
-    if isinstance(zones_data, list):
-        return zones_data
-    return []
-
-
-def is_point_in_polygon(point: tuple, polygon: list) -> bool:
-    """Check if a point is inside a polygon using cv2.pointPolygonTest."""
-    polygon_np = np.array(polygon, dtype=np.int32).reshape((-1, 1, 2))
-    return cv2.pointPolygonTest(polygon_np, point, False) >= 0
-
-
-def run_parking_detection(
-    source: str,
-    zones_file: str = DEFAULT_ZONES_FILE,
-    model_path: str = DEFAULT_MODEL,
-    output_file: str = None
-):
+def cluster_vehicle_positions(positions, eps=50, min_samples=3):
     """
-    Run parking detection on YouTube stream or video file.
-    Uses YOLO26 model.predict() which handles YouTube URLs directly.
+    Use DBSCAN clustering to find parking spot locations from vehicle positions.
+
+    Args:
+        positions: List of (x, y, w, h) tuples for detected vehicles
+        eps: Maximum distance between points in a cluster (pixels)
+        min_samples: Minimum points to form a cluster
+
+    Returns:
+        List of parking zone polygons
     """
-    # Load parking zones
-    parking_zones = load_parking_zones(zones_file)
-    total_spots = len(parking_zones)
-    print(f"Loaded {total_spots} parking zones from {zones_file}")
+    if len(positions) < min_samples:
+        return []
 
-    # Load YOLO26 model
-    print(f"Loading model: {model_path}")
-    model = YOLO(model_path)
+    # Use center points for clustering
+    centers = np.array([[p[0], p[1]] for p in positions])
 
-    # Prepare output
-    json_output = []
-    output_handle = None
-    if output_file:
-        output_handle = open(output_file, 'w')
-        output_handle.write('[\n')
+    # DBSCAN clustering
+    clustering = DBSCAN(eps=eps, min_samples=min_samples).fit(centers)
+    labels = clustering.labels_
 
-    print(f"\nStarting YOLO26 inference on: {source}")
-    print("Press 'q' in the video window to quit\n")
+    # Get unique clusters (ignore noise labeled as -1)
+    unique_labels = set(labels)
+    unique_labels.discard(-1)
 
-    frame_count = 0
-    start_time = time.time()
+    parking_zones = []
+    for label in unique_labels:
+        # Get all positions in this cluster
+        cluster_mask = labels == label
+        cluster_positions = [positions[i] for i in range(len(positions)) if cluster_mask[i]]
 
-    # Run prediction with stream=True for YouTube support
-    # show=True opens a window with bounding boxes drawn
-    results = model.predict(
-        source=source,
-        stream=True,
-        show=True,
-        verbose=False,
-        classes=[2, 5, 7],  # car, bus, truck (COCO classes)
-        conf=0.25
-    )
+        # Calculate average bounding box for this spot
+        avg_x = np.mean([p[0] for p in cluster_positions])
+        avg_y = np.mean([p[1] for p in cluster_positions])
+        avg_w = np.mean([p[2] for p in cluster_positions])
+        avg_h = np.mean([p[3] for p in cluster_positions])
 
-    try:
-        for result in results:
-            frame_count += 1
+        # Create polygon from bounding box (with some padding)
+        padding = 10
+        x1, y1 = int(avg_x - avg_w/2 - padding), int(avg_y - avg_h/2 - padding)
+        x2, y2 = int(avg_x + avg_w/2 + padding), int(avg_y + avg_h/2 + padding)
 
-            # Get the frame dimensions
-            if hasattr(result, 'orig_shape'):
-                frame_height, frame_width = result.orig_shape
-            else:
-                frame_height, frame_width = 720, 1280
+        zone = {
+            "points": [[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
+            "center": [int(avg_x), int(avg_y)],
+            "detections": len(cluster_positions)
+        }
+        parking_zones.append(zone)
 
-            # Track which zones are occupied
-            zone_occupancy = [False] * total_spots
+    return parking_zones
 
-            # Check each detected vehicle
-            boxes = result.boxes
-            for box in boxes:
+
+def is_point_in_polygon(point, polygon):
+    """Check if point is inside polygon."""
+    poly_np = np.array(polygon, dtype=np.int32).reshape((-1, 1, 2))
+    return cv2.pointPolygonTest(poly_np, point, False) >= 0
+
+
+print(f"\nStarting YOLO26 inference on: {YOUTUBE_URL}")
+print(f"Phase 1: Calibration - Learning parking spot positions ({CALIBRATION_FRAMES} frames)")
+print("=" * 60)
+
+results = model.predict(source=YOUTUBE_URL, stream=True, show=True, verbose=False)
+
+frame_count = 0
+calibration_positions = []  # Store (center_x, center_y, width, height)
+parking_zones = []
+calibration_complete = False
+
+for result in results:
+    frame_count += 1
+
+    # Get detected vehicles
+    boxes = result.boxes
+    for box in boxes:
+        cls_id = int(box.cls[0])
+
+        if cls_id in VEHICLE_CLASSES:
+            x1, y1, x2, y2 = box.xyxy[0].tolist()
+            center_x = (x1 + x2) / 2
+            center_y = (y1 + y2) / 2
+            width = x2 - x1
+            height = y2 - y1
+
+            if not calibration_complete:
+                # Calibration phase: collect vehicle positions
+                calibration_positions.append((center_x, center_y, width, height))
+
+    # After calibration frames, cluster positions to find parking spots
+    if frame_count == CALIBRATION_FRAMES and not calibration_complete:
+        print(f"\nCalibration complete. Collected {len(calibration_positions)} vehicle detections.")
+        print("Clustering to find parking spots...")
+
+        parking_zones = cluster_vehicle_positions(
+            calibration_positions,
+            eps=60,  # Vehicles within 60px are same spot
+            min_samples=MIN_SPOT_DETECTIONS
+        )
+
+        print(f"Detected {len(parking_zones)} parking spots automatically!")
+
+        # Save zones to file
+        with open("auto_parking_zones.json", "w") as f:
+            json.dump(parking_zones, f, indent=2)
+        print("Saved parking zones to auto_parking_zones.json")
+
+        calibration_complete = True
+        print("\n" + "=" * 60)
+        print("Phase 2: Detection - Monitoring parking availability")
+        print("=" * 60 + "\n")
+
+    # Detection phase: check occupancy of auto-detected spots
+    if calibration_complete and len(parking_zones) > 0:
+        zone_occupancy = [False] * len(parking_zones)
+
+        for box in boxes:
+            cls_id = int(box.cls[0])
+            if cls_id in VEHICLE_CLASSES:
                 x1, y1, x2, y2 = box.xyxy[0].tolist()
                 center_x = int((x1 + x2) / 2)
                 center_y = int((y1 + y2) / 2)
 
-                # Check if vehicle center is in any parking zone
                 for idx, zone in enumerate(parking_zones):
-                    polygon = zone.get("points", zone)
-                    if is_point_in_polygon((center_x, center_y), polygon):
+                    if is_point_in_polygon((center_x, center_y), zone["points"]):
                         zone_occupancy[idx] = True
                         break
 
-            # Calculate occupancy
-            occupied = sum(zone_occupancy)
-            available = total_spots - occupied
+        occupied = sum(zone_occupancy)
+        available = len(parking_zones) - occupied
 
-            # Build JSON output
-            spots_status = []
-            for idx, zone in enumerate(parking_zones):
-                spots_status.append({
-                    "id": idx,
-                    "occupied": zone_occupancy[idx],
-                    "polygon": zone.get("points", zone)
-                })
-
+        # Print status every 30 frames
+        if frame_count % 30 == 0:
             frame_data = {
                 "frame_number": frame_count,
-                "timestamp_ms": int(frame_count * (1000 / 30)),  # Approximate
-                "total_spots": total_spots,
+                "total_spots": len(parking_zones),
                 "available": available,
                 "occupied": occupied,
-                "occupancy_rate": round(occupied / total_spots * 100, 1) if total_spots > 0 else 0,
-                "spots": spots_status
+                "occupancy_rate": round(occupied / len(parking_zones) * 100, 1),
+                "spots": [
+                    {
+                        "id": i,
+                        "occupied": zone_occupancy[i],
+                        "polygon": parking_zones[i]["points"]
+                    }
+                    for i in range(len(parking_zones))
+                ]
             }
+            print(f"Frame {frame_count} | Available: {available}/{len(parking_zones)} | Occupied: {occupied}")
+            print(f"  JSON: {json.dumps({k: v for k, v in frame_data.items() if k != 'spots'})}")
 
-            # Print status every 30 frames
-            if frame_count % 30 == 0:
-                elapsed = time.time() - start_time
-                fps = frame_count / elapsed if elapsed > 0 else 0
-                print(f"Frame {frame_count} | Available: {available}/{total_spots} | "
-                      f"Occupied: {occupied} | FPS: {fps:.1f}")
-                print(f"  JSON: {json.dumps({k: v for k, v in frame_data.items() if k != 'spots'})}")
-
-            # Save to output file
-            if output_handle:
-                if frame_count > 1:
-                    output_handle.write(',\n')
-                output_handle.write(json.dumps(frame_data))
-
-            json_output.append(frame_data)
-
-    except KeyboardInterrupt:
-        print("\nStopped by user")
-
-    finally:
-        if output_handle:
-            output_handle.write('\n]')
-            output_handle.close()
-            print(f"\nJSON output saved to: {output_file}")
-
-        # Print summary
-        elapsed = time.time() - start_time
-        print(f"\n{'='*60}")
-        print("DETECTION COMPLETE - YOLO26")
-        print(f"{'='*60}")
-        print(f"Processed {frame_count} frames in {elapsed:.1f}s ({frame_count/elapsed:.1f} FPS)")
-
-        if json_output:
-            last = json_output[-1]
-            print(f"Final: {last['available']} available, {last['occupied']} occupied")
-
-    return json_output
-
-
-def main():
-    parser = argparse.ArgumentParser(
-        description="RUParked - YOLO26 Parking Detection (YouTube streaming supported)",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Run detection on YouTube video (opens window automatically)
-  python parking_detector.py --source "https://www.youtube.com/watch?v=U7HRKjlXK-Y"
-
-  # Run detection on local video
-  python parking_detector.py --source parking_lot.mp4
-
-  # Save JSON output
-  python parking_detector.py --source "https://youtu.be/..." --output data.json
-        """
-    )
-
-    parser.add_argument(
-        "--source", "-s",
-        required=True,
-        help="Video source: YouTube URL or local file path"
-    )
-    parser.add_argument(
-        "--zones", "-z",
-        default=DEFAULT_ZONES_FILE,
-        help=f"Path to parking zones JSON (default: {DEFAULT_ZONES_FILE})"
-    )
-    parser.add_argument(
-        "--model", "-m",
-        default=DEFAULT_MODEL,
-        help=f"YOLO model (default: {DEFAULT_MODEL})"
-    )
-    parser.add_argument(
-        "--output", "-o",
-        help="Save JSON output to file"
-    )
-
-    args = parser.parse_args()
-
-    run_parking_detection(
-        source=args.source,
-        zones_file=args.zones,
-        model_path=args.model,
-        output_file=args.output
-    )
-
-
-if __name__ == "__main__":
-    main()
+print(f"\nFinished. Total frames: {frame_count}")
+print(f"Auto-detected {len(parking_zones)} parking spots")
