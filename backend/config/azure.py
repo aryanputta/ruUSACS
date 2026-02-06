@@ -1,18 +1,14 @@
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # ============================================================
 # AZURE CONFIGURATION
 # ============================================================
-# Set these environment variables before running the API:
-#
-# export AZURE_AD_B2C_TENANT_ID="your-tenant-id"
-# export AZURE_AD_B2C_CLIENT_ID="your-client-id"
-# export AZURE_AD_B2C_CLIENT_SECRET="your-client-secret"
-# export AZURE_COMMUNICATION_CONNECTION_STRING="your-connection-string"
-# export AZURE_NOTIFICATION_HUB_CONNECTION_STRING="your-hub-connection-string"
-# export AZURE_NOTIFICATION_HUB_NAME="your-hub-name"
-# export AZURE_MAPS_SUBSCRIPTION_KEY="your-maps-key"
-# export AZURE_APP_INSIGHTS_CONNECTION_STRING="your-insights-connection-string"
+# Keys are loaded from .env file (never commit .env to git!)
+# Copy .env.example to .env and fill in your real keys
 # ============================================================
 
 AZURE_AD_B2C_TENANT_ID = os.getenv("AZURE_AD_B2C_TENANT_ID")
@@ -28,11 +24,11 @@ AZURE_APP_INSIGHTS_CONNECTION_STRING = os.getenv("AZURE_APP_INSIGHTS_CONNECTION_
 def get_communication_client():
     from azure.communication.identity import CommunicationIdentityClient
     if not AZURE_COMMUNICATION_CONNECTION_STRING:
-        raise ValueError("AZURE_COMMUNICATION_CONNECTION_STRING not set")
+        raise ValueError("AZURE_COMMUNICATION_CONNECTION_STRING not set in .env")
     return CommunicationIdentityClient.from_connection_string(AZURE_COMMUNICATION_CONNECTION_STRING)
 
 
 def get_maps_client():
     if not AZURE_MAPS_SUBSCRIPTION_KEY:
-        raise ValueError("AZURE_MAPS_SUBSCRIPTION_KEY not set")
+        raise ValueError("AZURE_MAPS_SUBSCRIPTION_KEY not set in .env")
     return {"subscription_key": AZURE_MAPS_SUBSCRIPTION_KEY}
