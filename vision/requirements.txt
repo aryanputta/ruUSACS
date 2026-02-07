@@ -12,6 +12,7 @@ scikit-learn>=1.0.0
 # ─── FastAPI Backend ──────────────────────────────────────────────────────────
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
+requests>=2.31.0
 
 # ─── Auto-Segmentation (SAM models) ──────────────────────────────────────────
 # 
