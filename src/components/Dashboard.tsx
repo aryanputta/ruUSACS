@@ -6,10 +6,11 @@ import { Clock, X, Zap, MapPin } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface ParkingSpot {
-  id: number;
+  id: string | number;
   row: number;
   col: number;
   status: 'available' | 'occupied';
+  lotName?: string;
 }
 
 export function Dashboard() {
@@ -18,16 +19,42 @@ export function Dashboard() {
   const [selectedTimeOffset, setSelectedTimeOffset] = useState(0); // 0, 15, 30, 45, 60 minutes
   const [selectedLot, setSelectedLot] = useState<string | null>(null);
 
+  const [liveLotA, setLiveLotA] = useState({ available: 12, total: 47, spots: [] as ParkingSpot[] });
+
+  // Fetch live CV data
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 60000); // Update every minute
-    return () => clearInterval(timer);
+    const fetchLiveStats = async () => {
+      try {
+        const response = await fetch('http://localhost:4000/cv/spots/Yellow%20Lot');
+        const data = await response.json();
+
+        if (data.spots && data.spots.length > 0) {
+          const mappedSpots = data.spots.map((s: any, index: number) => ({
+            id: s.spot_id,
+            row: Math.floor(index / 10),
+            col: index % 10,
+            status: s.is_occupied ? 'occupied' : 'available'
+          }));
+
+          setLiveLotA({
+            available: data.available,
+            total: data.total_spots,
+            spots: mappedSpots
+          });
+        }
+      } catch (error) {
+        console.error("Error fetching live parking data:", error);
+      }
+    };
+
+    fetchLiveStats();
+    const interval = setInterval(fetchLiveStats, 3000);
+    return () => clearInterval(interval);
   }, []);
 
   // Parking lot data with better organization
   const parkingLots = [
-    { name: 'LOT A', available: 12, total: 45, status: 'low', campus: 'BUSCH', spots: generateParkingLot(45, 12, 5, 9) },
+    { name: 'YELLOW LOT', available: liveLotA.available, total: liveLotA.total, status: liveLotA.available < 5 ? 'critical' : 'good', campus: 'BUSCH', spots: liveLotA.spots.length > 0 ? liveLotA.spots : generateParkingLot(47, 12, 5, 10) },
     { name: 'LOT B', available: 3, total: 50, status: 'critical', campus: 'BUSCH', spots: generateParkingLot(50, 3, 5, 10) },
     { name: 'LOT C', available: 28, total: 60, status: 'good', campus: 'BUSCH', spots: generateParkingLot(60, 28, 6, 10) },
     { name: 'LOT D', available: 8, total: 35, status: 'medium', campus: 'COLLEGE AVE', spots: generateParkingLot(35, 8, 5, 7) },
