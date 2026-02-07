@@ -1,7 +1,9 @@
 // API Configuration for RuParked Frontend
 // This connects the React frontend to the FastAPI backend
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+declare const __VITE_API_URL__: string | undefined;
+const API_BASE_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL) || 'http://localhost:4000';
+
 
 export const api = {
     baseUrl: API_BASE_URL,
