@@ -48,7 +48,7 @@ export function Dashboard() {
     };
 
     fetchLiveStats();
-    const interval = setInterval(fetchLiveStats, 3000);
+    const interval = setInterval(fetchLiveStats, 1000);
     return () => clearInterval(interval);
   }, []);
 
