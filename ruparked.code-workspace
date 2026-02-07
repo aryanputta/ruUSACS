@@ -1,0 +1,16 @@
+{
+    "folders": [
+        {
+            "path": "."
+        }
+    ],
+    "settings": {
+        "python.defaultInterpreterPath": "C:\\Users\\shrih\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe",
+        "python.analysis.extraPaths": [
+            "${workspaceFolder}/backend"
+        ],
+        "python.autoComplete.extraPaths": [
+            "${workspaceFolder}/backend"
+        ]
+    }
+}
