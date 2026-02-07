@@ -249,3 +249,240 @@ async def get_lot_to_bus_info(lot_name: str):
         "walk_time_minutes": connection["walk_minutes"],
         "next_buses": arrivals[:3]  # Top 3 upcoming buses
     }
+
+
+# ============================================================================
+# LIVE BUS TRACKING
+# ============================================================================
+
+class LiveBusPosition(BaseModel):
+    vehicle_id: str
+    route_id: str
+    route_name: str
+    route_color: str
+    latitude: float
+    longitude: float
+    heading: int  # degrees, 0=North
+    speed_mph: float
+    last_updated: str
+    next_stop: str
+    passengers: Optional[int] = None
+
+
+class ParkingSpotStatus(BaseModel):
+    lot_name: str
+    spot_id: str
+    is_occupied: bool
+    last_updated: str
+    spot_type: str  # "regular", "handicap", "ev_charging"
+
+
+@router.get("/live/buses", response_model=List[LiveBusPosition])
+async def get_live_bus_positions():
+    """Get real-time positions of all Rutgers buses.
+    
+    Note: For hackathon demo, returns simulated positions.
+    In production, this would call the PassioGO API for live GPS data.
+    """
+    import random
+    from datetime import datetime
+    
+    buses = []
+    
+    # Simulated bus positions for each route
+    for route in RUTGERS_BUS_ROUTES:
+        # Each route has 2-3 active buses
+        num_buses = random.randint(2, 3)
+        for i in range(num_buses):
+            # Generate position near Rutgers campuses
+            base_lat = 40.50 + random.uniform(-0.03, 0.03)
+            base_lng = -74.45 + random.uniform(-0.02, 0.02)
+            
+            buses.append(LiveBusPosition(
+                vehicle_id=f"RU-{random.randint(100, 999)}",
+                route_id=route["route_id"],
+                route_name=route["name"],
+                route_color=route["color"],
+                latitude=round(base_lat, 6),
+                longitude=round(base_lng, 6),
+                heading=random.randint(0, 359),
+                speed_mph=round(random.uniform(5, 25), 1),
+                last_updated=datetime.now().isoformat(),
+                next_stop=random.choice(route["stops"]),
+                passengers=random.randint(5, 40)
+            ))
+    
+    return buses
+
+
+@router.get("/live/buses/{route_id}", response_model=List[LiveBusPosition])
+async def get_buses_on_route(route_id: str):
+    """Get live positions of buses on a specific route."""
+    all_buses = await get_live_bus_positions()
+    return [b for b in all_buses if b.route_id == route_id]
+
+
+@router.get("/live/parking", response_model=List[ParkingSpotStatus])
+async def get_live_parking_status(lot_name: Optional[str] = None):
+    """Get real-time parking spot availability.
+    
+    This endpoint is designed to be called by the CV model to report
+    spot status, OR by the frontend to display current availability.
+    """
+    import random
+    from datetime import datetime
+    
+    lots = [
+        "Lot 48 - Livingston",
+        "Lot 60 - Busch", 
+        "Lot 55 - Livingston",
+        "Stadium Lot",
+        "Lot 67 - Busch",
+        "College Ave Deck"
+    ]
+    
+    if lot_name:
+        lots = [lot_name] if lot_name in lots else []
+    
+    spots = []
+    for lot in lots:
+        # Each lot has 50-200 spots
+        num_spots = random.randint(50, 200)
+        occupancy_rate = random.uniform(0.6, 0.95)
+        
+        for i in range(min(20, num_spots)):  # Return first 20 spots per lot
+            spot_type = "regular"
+            if i < 3:
+                spot_type = "handicap"
+            elif i < 6:
+                spot_type = "ev_charging"
+                
+            spots.append(ParkingSpotStatus(
+                lot_name=lot,
+                spot_id=f"{lot[:3].upper()}-{i+1:03d}",
+                is_occupied=random.random() < occupancy_rate,
+                last_updated=datetime.now().isoformat(),
+                spot_type=spot_type
+            ))
+    
+    return spots
+
+
+@router.get("/bus-info/{route_id}")
+async def get_bus_details(route_id: str):
+    """Get detailed info about a specific Rutgers bus route.
+    
+    Includes: route description, schedule, typical travel times, 
+    and which campuses it connects.
+    """
+    bus_info = {
+        "RU_A": {
+            "name": "A Bus",
+            "full_name": "Route A - All Campuses Express",
+            "description": "Express service connecting College Ave, Busch, and Livingston campuses",
+            "color": "#E31837",
+            "campuses": ["College Ave", "Busch", "Livingston"],
+            "frequency_minutes": 10,
+            "first_bus": "07:00",
+            "last_bus": "03:00",
+            "typical_loop_time": 25,
+            "wheelchair_accessible": True
+        },
+        "RU_B": {
+            "name": "B Bus",
+            "full_name": "Route B - All Campuses",
+            "description": "Connects all campuses with more stops than A Bus",
+            "color": "#00843D",
+            "campuses": ["College Ave", "Busch", "Livingston", "Cook/Douglass"],
+            "frequency_minutes": 12,
+            "first_bus": "07:00",
+            "last_bus": "03:00",
+            "typical_loop_time": 35,
+            "wheelchair_accessible": True
+        },
+        "RU_EE": {
+            "name": "EE Bus",
+            "full_name": "Route EE - College Ave/Cook-Douglass",
+            "description": "Connects College Ave and Cook/Douglass campuses",
+            "color": "#FFC72C",
+            "campuses": ["College Ave", "Cook/Douglass"],
+            "frequency_minutes": 8,
+            "first_bus": "07:00",
+            "last_bus": "23:00",
+            "typical_loop_time": 15,
+            "wheelchair_accessible": True
+        },
+        "RU_F": {
+            "name": "F Bus",
+            "full_name": "Route F - Busch Campus",
+            "description": "Internal Busch campus circulation",
+            "color": "#0073CF",
+            "campuses": ["Busch"],
+            "frequency_minutes": 6,
+            "first_bus": "07:00",
+            "last_bus": "22:00",
+            "typical_loop_time": 10,
+            "wheelchair_accessible": True
+        },
+        "RU_H": {
+            "name": "H Bus",
+            "full_name": "Route H - Henderson/Busch/Livingston",
+            "description": "Connects Henderson apartments to Busch and Livingston",
+            "color": "#6A2A8E",
+            "campuses": ["Busch", "Livingston"],
+            "frequency_minutes": 15,
+            "first_bus": "07:00",
+            "last_bus": "22:00",
+            "typical_loop_time": 20,
+            "wheelchair_accessible": True
+        },
+        "RU_LX": {
+            "name": "LX Bus",
+            "full_name": "Route LX - Livingston Express",
+            "description": "Internal Livingston campus circulation",
+            "color": "#FF6600",
+            "campuses": ["Livingston"],
+            "frequency_minutes": 8,
+            "first_bus": "07:00",
+            "last_bus": "22:00",
+            "typical_loop_time": 8,
+            "wheelchair_accessible": True
+        },
+        "RU_REXL": {
+            "name": "REXL Bus",
+            "full_name": "Route REXL - Livingston to Busch Express",
+            "description": "Direct express between Livingston and Busch",
+            "color": "#CC0000",
+            "campuses": ["Livingston", "Busch"],
+            "frequency_minutes": 5,
+            "first_bus": "07:30",
+            "last_bus": "22:00",
+            "typical_loop_time": 8,
+            "wheelchair_accessible": True
+        },
+        "RU_REXB": {
+            "name": "REXB Bus",
+            "full_name": "Route REXB - Busch to Livingston Express",
+            "description": "Direct express between Busch and Livingston",
+            "color": "#CC0000",
+            "campuses": ["Busch", "Livingston"],
+            "frequency_minutes": 5,
+            "first_bus": "07:30",
+            "last_bus": "22:00",
+            "typical_loop_time": 8,
+            "wheelchair_accessible": True
+        }
+    }
+    
+    if route_id not in bus_info:
+        raise HTTPException(status_code=404, detail="Route not found")
+    
+    info = bus_info[route_id]
+    
+    # Add live bus count
+    live_buses = await get_buses_on_route(route_id)
+    info["active_buses"] = len(live_buses)
+    info["live_positions"] = live_buses
+    
+    return info
+
