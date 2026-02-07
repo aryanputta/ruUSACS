@@ -48,6 +48,10 @@ from services.trading.requests import router as trading_requests_router
 
 # Navigation Module (Converted from TypeScript)
 from services.navigation.commute import router as commute_router
+from services.navigation.bus_routes import router as bus_router
+
+# Calendar Import (NEW)
+from services.student.calendar import router as calendar_router
 
 app = FastAPI(
     title="RuParked API",
@@ -100,6 +104,8 @@ app.include_router(graph_router)
 app.include_router(feed_router)
 app.include_router(auth_router)
 app.include_router(commute_router)
+app.include_router(bus_router)
+app.include_router(calendar_router)
 
 
 @app.get("/")
