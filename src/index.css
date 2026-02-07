@@ -1,0 +1,201 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap');
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --font-size: 16px;
+  --background: #000000;
+  --foreground: #e5e5e5;
+  --card: #0a0a0a;
+  --card-foreground: #e5e5e5;
+  --popover: #0a0a0a;
+  --popover-foreground: #e5e5e5;
+  --primary: #ff0000;
+  --primary-foreground: #ffffff;
+  --secondary: #1a0000;
+  --secondary-foreground: #e5e5e5;
+  --muted: #1a0000;
+  --muted-foreground: #999999;
+  --accent: #ff0000;
+  --accent-foreground: #ffffff;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: rgba(255, 0, 0, 0.2);
+  --input: rgba(255, 0, 0, 0.1);
+  --input-background: #0a0a0a;
+  --switch-background: #1a0000;
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+  --ring: #ff0000;
+  --radius: 0.375rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-input-background: var(--input-background);
+  --color-switch-background: var(--switch-background);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'JetBrains Mono', monospace;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    margin: 0;
+    height: 100vh;
+    overflow: hidden;
+  }
+}
+
+@layer base {
+  :where(:not(:has([class*=' text-']), :not(:has([class^='text-'])))) {
+    h1 {
+      font-size: var(--text-2xl);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    h2 {
+      font-size: var(--text-xl);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    h3 {
+      font-size: var(--text-lg);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    h4 {
+      font-size: var(--text-base);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    label {
+      font-size: var(--text-base);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    button {
+      font-size: var(--text-base);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    input {
+      font-size: var(--text-base);
+      font-weight: var(--font-weight-normal);
+      line-height: 1.5;
+    }
+  }
+}
+
+html {
+  font-size: var(--font-size);
+}
+
+/* Stranger Things effects */
+@keyframes flicker {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  41.99% {
+    opacity: 1;
+  }
+
+  42% {
+    opacity: 0.8;
+  }
+
+  43% {
+    opacity: 1;
+  }
+
+  45.99% {
+    opacity: 1;
+  }
+
+  46% {
+    opacity: 0.7;
+  }
+
+  46.5% {
+    opacity: 1;
+  }
+}
+
+@keyframes glow {
+
+  0%,
+  100% {
+    text-shadow: 0 0 10px rgba(255, 0, 0, 0.8),
+      0 0 20px rgba(255, 0, 0, 0.6),
+      0 0 30px rgba(255, 0, 0, 0.4);
+  }
+
+  50% {
+    text-shadow: 0 0 15px rgba(255, 0, 0, 1),
+      0 0 30px rgba(255, 0, 0, 0.8),
+      0 0 45px rgba(255, 0, 0, 0.6);
+  }
+}
+
+.glow-text {
+  animation: glow 2s ease-in-out infinite;
+}
+
+.flicker {
+  animation: flicker 5s linear infinite;
+}
+
+.scanlines {
+  position: relative;
+}
+
+.scanlines::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(0deg,
+      rgba(0, 0, 0, 0.15),
+      rgba(0, 0, 0, 0.15) 1px,
+      transparent 1px,
+      transparent 2px);
+  pointer-events: none;
+  z-index: 1;
+}
