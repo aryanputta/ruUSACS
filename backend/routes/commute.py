@@ -8,10 +8,12 @@ needs direct access to Azure services or keys.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from backend.config import settings
 from backend.services.navigation.optimization import (
     CommuteOptimizationRequest,
     CommuteOptimizationResult,
@@ -35,6 +37,27 @@ class HealthResponse(BaseModel):
     success: bool = True
     service: str = "smart-commute-optimization"
     timestamp: str
+
+
+class ServiceKeyStatus(BaseModel):
+    """Whether each Azure service key is configured (True/False)."""
+    azure_maps_subscription_key: bool
+    azure_maps_client_id: bool
+    azure_communication_connection_string: bool
+
+
+class ConfigResponse(BaseModel):
+    """Public configuration the frontend may need.
+
+    - ``azure_maps_client_id`` is intentionally exposed because the
+      Azure Maps JS map control requires it client-side.
+    - Actual secrets are **never** returned; only boolean flags
+      indicating whether each secret is configured.
+    """
+    success: bool = True
+    azure_maps_client_id: str
+    azure_maps_base_url: str
+    keys_configured: ServiceKeyStatus
 
 
 # ---------------------------------------------------------------------------
@@ -85,4 +108,35 @@ async def health_check():
     """Lightweight health-check endpoint."""
     return HealthResponse(
         timestamp=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/commute/config
+# ---------------------------------------------------------------------------
+
+
+@router.get("/config", response_model=ConfigResponse)
+async def get_config():
+    """Return public configuration the frontend needs.
+
+    * ``azure_maps_client_id`` -- required by the Azure Maps JS SDK to
+      initialise the map control.
+    * ``azure_maps_base_url`` -- the base REST URL used for tile
+      requests, etc.
+    * ``keys_configured`` -- boolean flags so the frontend can show a
+      meaningful status indicator without ever seeing the actual secrets.
+    """
+    return ConfigResponse(
+        azure_maps_client_id=settings.azure_maps_client_id,
+        azure_maps_base_url=settings.azure_maps_base_url,
+        keys_configured=ServiceKeyStatus(
+            azure_maps_subscription_key=bool(
+                settings.azure_maps_subscription_key
+            ),
+            azure_maps_client_id=bool(settings.azure_maps_client_id),
+            azure_communication_connection_string=bool(
+                settings.azure_communication_connection_string
+            ),
+        ),
     )

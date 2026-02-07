@@ -63,6 +63,7 @@ async def root():
         "endpoints": [
             "POST /api/commute/optimize",
             "GET  /api/commute/health",
+            "GET  /api/commute/config",
         ],
     }
 
