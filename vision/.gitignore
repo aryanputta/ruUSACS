@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+
+# Generated data files (created by parking_detector.py)
+occupancy_data.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Node/Frontend
+node_modules/
+dist/
+.cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc
+compass_artifact_wf-2de4ddc4-c933-44a5-822c-7f10e173c1dd_text_markdown (1).md
+instructions.md
+.claude/
+raccoon_possum_servo.py
+sam3.pt
