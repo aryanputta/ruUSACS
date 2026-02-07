@@ -1,4 +1,4 @@
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter } from "react-router-dom";
 import { Dashboard } from "./components/Dashboard";
 import { Schedule } from "./components/Schedule";
 import { Social } from "./components/Social";
