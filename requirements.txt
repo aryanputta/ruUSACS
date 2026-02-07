@@ -1,9 +1,35 @@
 # RUParked - Parking Detection System
 # Install with: pip install -r requirements.txt
 
+# ─── YOLO Detection ───────────────────────────────────────────────────────────
 ultralytics>=8.0.0
 opencv-python>=4.8.0
 yt-dlp>=2024.0.0
 numpy>=1.23.0
 torch>=2.0.0
 scikit-learn>=1.0.0
+
+# ─── FastAPI Backend ──────────────────────────────────────────────────────────
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+
+# ─── Auto-Segmentation (SAM models) ──────────────────────────────────────────
+# 
+# RECOMMENDED: SAM 3 (Meta's latest, Nov 2025) - supports text prompts!
+#   Requires: Python 3.12+, PyTorch 2.7+, CUDA 12.6+
+#   Install: pip install git+https://github.com/facebookresearch/sam3.git
+#   Then: huggingface-cli login (to download model checkpoints)
+#
+# Fallback Option 1: SAM 2 
+#   pip install git+https://github.com/facebookresearch/segment-anything-2.git
+# 
+# Fallback Option 2: MobileSAM (included in ultralytics, lighter/faster)
+#   Already included via ultralytics - no extra install needed
+#
+# Fallback Option 3: FastSAM - fast CNN-based alternative
+#   Model downloads automatically from ultralytics hub
+
+# Additional utilities for segmentation
+scipy>=1.10.0
+Pillow>=9.0.0
+huggingface_hub>=0.20.0  # For SAM 3 model download

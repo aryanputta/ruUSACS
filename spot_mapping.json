@@ -1,0 +1,85 @@
+{
+  "lot_name": "Yellow Lot",
+  "campus": "Livingston",
+  "camera_section": "Yellow-NW",
+  "description": "Maps detector spot IDs to frontend display labels. Created ONCE when setting up the lot.",
+  "sections": [
+    {
+      "name": "A",
+      "description": "Bottom row - closest to camera",
+      "spots": [
+        {"frontend_id": "A1", "detector_id": 25, "row": "bottom"},
+        {"frontend_id": "A2", "detector_id": 15, "row": "bottom"},
+        {"frontend_id": "A3", "detector_id": 14, "row": "bottom"},
+        {"frontend_id": "A4", "detector_id": 0, "row": "bottom"},
+        {"frontend_id": "A5", "detector_id": 1, "row": "bottom"},
+        {"frontend_id": "A6", "detector_id": 2, "row": "bottom"},
+        {"frontend_id": "A7", "detector_id": 4, "row": "bottom"},
+        {"frontend_id": "A8", "detector_id": 5, "row": "bottom"},
+        {"frontend_id": "A9", "detector_id": 6, "row": "bottom"},
+        {"frontend_id": "A10", "detector_id": 7, "row": "bottom"},
+        {"frontend_id": "A11", "detector_id": 8, "row": "bottom"}
+      ]
+    },
+    {
+      "name": "B",
+      "description": "Second row from bottom",
+      "spots": [
+        {"frontend_id": "B1", "detector_id": 26, "row": "top"},
+        {"frontend_id": "B2", "detector_id": 16, "row": "top"},
+        {"frontend_id": "B3", "detector_id": 27, "row": "top"},
+        {"frontend_id": "B4", "detector_id": 24, "row": "top"},
+        {"frontend_id": "B5", "detector_id": 23, "row": "top"},
+        {"frontend_id": "B6", "detector_id": 3, "row": "top"},
+        {"frontend_id": "B7", "detector_id": 40, "row": "top"},
+        {"frontend_id": "B8", "detector_id": 41, "row": "top"},
+        {"frontend_id": "B9", "detector_id": 42, "row": "top"}
+      ]
+    },
+    {
+      "name": "C",
+      "description": "Third row - middle section",
+      "spots": [
+        {"frontend_id": "C1", "detector_id": 29, "row": "bottom"},
+        {"frontend_id": "C2", "detector_id": 28, "row": "bottom"},
+        {"frontend_id": "C3", "detector_id": 43, "row": "bottom"},
+        {"frontend_id": "C4", "detector_id": 17, "row": "bottom"},
+        {"frontend_id": "C5", "detector_id": 18, "row": "bottom"},
+        {"frontend_id": "C6", "detector_id": 19, "row": "bottom"},
+        {"frontend_id": "C7", "detector_id": 20, "row": "bottom"},
+        {"frontend_id": "C8", "detector_id": 21, "row": "bottom"},
+        {"frontend_id": "C9", "detector_id": 22, "row": "bottom"},
+        {"frontend_id": "C10", "detector_id": 12, "row": "bottom"},
+        {"frontend_id": "C11", "detector_id": 13, "row": "bottom"},
+        {"frontend_id": "C12", "detector_id": 11, "row": "bottom"},
+        {"frontend_id": "C13", "detector_id": 9, "row": "bottom"},
+        {"frontend_id": "C14", "detector_id": 10, "row": "bottom"}
+      ]
+    },
+    {
+      "name": "D",
+      "description": "Fourth row - upper section",
+      "spots": [
+        {"frontend_id": "D1", "detector_id": 30, "row": "top"},
+        {"frontend_id": "D2", "detector_id": 31, "row": "top"},
+        {"frontend_id": "D3", "detector_id": 32, "row": "top"},
+        {"frontend_id": "D4", "detector_id": 33, "row": "top"},
+        {"frontend_id": "D5", "detector_id": 34, "row": "top"},
+        {"frontend_id": "D6", "detector_id": 35, "row": "top"},
+        {"frontend_id": "D7", "detector_id": 36, "row": "top"},
+        {"frontend_id": "D8", "detector_id": 37, "row": "top"},
+        {"frontend_id": "D9", "detector_id": 38, "row": "top"},
+        {"frontend_id": "D10", "detector_id": 39, "row": "top"}
+      ]
+    },
+    {
+      "name": "E",
+      "description": "Furthest row from camera",
+      "spots": [
+        {"frontend_id": "E1", "detector_id": 44, "row": "bottom"},
+        {"frontend_id": "E2", "detector_id": 45, "row": "bottom"},
+        {"frontend_id": "E3", "detector_id": 46, "row": "bottom"}
+      ]
+    }
+  ]
+}
