@@ -53,6 +53,9 @@ from services.navigation.bus_routes import router as bus_router
 # Calendar Import (NEW)
 from services.student.calendar import router as calendar_router
 
+# CV Integration (NEW)
+from services.cv_integration import router as cv_router
+
 app = FastAPI(
     title="RuParked API",
     description="Social, Communication, Safety & Sustainability features for student parking",
@@ -106,6 +109,7 @@ app.include_router(auth_router)
 app.include_router(commute_router)
 app.include_router(bus_router)
 app.include_router(calendar_router)
+app.include_router(cv_router)
 
 
 @app.get("/")
